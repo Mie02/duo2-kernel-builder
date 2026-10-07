@@ -26,10 +26,13 @@ on:
         required: true
         type: boolean
         default: true
+  push:
+    branches:
+      - main
 
 jobs:
   build:
-    name: Compile Duo 2 Kernel (${{ github.event.inputs.defconfig }})
+    name: Compile Duo 2 Kernel (${{ github.event.inputs.defconfig || 'lahaina-gki_defconfig' }})
     runs-on: ubuntu-22.04
 
     steps:
@@ -100,7 +103,7 @@ jobs:
           test -f prebuilts/build-tools/linux-x86/bin/make && echo "[OK] Build-tools make found" || (echo "[FAIL] Missing make" && exit 1)
 
       - name: Integrate KernelSU
-        if: ${{ github.event.inputs.enable_ksu == 'true' }}
+        if: ${{ github.event.inputs.enable_ksu == 'true' || github.event_name == 'push' }}
         run: |
           cd workspace/kernel/msm-5.4
           echo "Applying KernelSU integration to Linux 5.4 kernel tree..."
@@ -148,7 +151,7 @@ EOF
       - name: Apply Defconfig Tweaks (KernelSU, BBR, WireGuard, Kprobes)
         run: |
           cd workspace/kernel/msm-5.4
-          TARGET_CONFIG="${{ github.event.inputs.defconfig }}"
+          TARGET_CONFIG="${{ github.event.inputs.defconfig || 'lahaina-gki_defconfig' }}"
           echo "Configuring kernel defconfig tweaks for $TARGET_CONFIG..."
 
           # Create custom fragment to be merged during generate_defconfig.sh
@@ -162,20 +165,20 @@ EOF
           echo "CONFIG_KPROBE_EVENTS=y" >> $CUSTOM_FRAG
 
           # KernelSU native driver
-          if [ "${{ github.event.inputs.enable_ksu }}" = "true" ]; then
+          if [ "${{ github.event.inputs.enable_ksu || 'true' }}" = "true" ]; then
             echo "CONFIG_KSU=y" >> $CUSTOM_FRAG
             echo "[OK] In-Kernel KernelSU enabled"
           fi
 
           # In-Kernel BBR
-          if [ "${{ github.event.inputs.enable_bbr }}" = "true" ]; then
+          if [ "${{ github.event.inputs.enable_bbr || 'true' }}" = "true" ]; then
             echo "CONFIG_TCP_CONG_BBR=y" >> $CUSTOM_FRAG
             echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> $CUSTOM_FRAG
             echo "[OK] In-Kernel BBR enabled"
           fi
 
           # In-Kernel WireGuard
-          if [ "${{ github.event.inputs.enable_wireguard }}" = "true" ]; then
+          if [ "${{ github.event.inputs.enable_wireguard || 'true' }}" = "true" ]; then
             echo "CONFIG_WIREGUARD=y" >> $CUSTOM_FRAG
             echo "[OK] In-Kernel WireGuard enabled"
           fi
@@ -196,7 +199,7 @@ EOF
           export T=$PWD
           
           echo "Starting official Microsoft kernel-build.sh..."
-          bash device_build/kernel/kernel-build.sh -c ${{ github.event.inputs.defconfig }} -p $PWD
+          bash device_build/kernel/kernel-build.sh -c ${{ github.event.inputs.defconfig || 'lahaina-gki_defconfig' }} -p $PWD
 
       - name: Package Kernel & AnyKernel3
         run: |
@@ -233,6 +236,6 @@ EOF
       - name: Upload Kernel Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SurfaceDuo2-Kernel-${{ github.event.inputs.defconfig }}
+          name: SurfaceDuo2-Kernel-${{ github.event.inputs.defconfig || 'lahaina-gki_defconfig' }}
           path: output/
           retention-days: 14
