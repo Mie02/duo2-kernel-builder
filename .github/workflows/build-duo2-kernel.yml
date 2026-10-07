@@ -50,7 +50,8 @@ jobs:
           sudo apt-get install -y git-core gnupg flex bison gperf build-essential zip curl \
             zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses-dev \
             libx11-dev lib32z-dev libgl1-mesa-dev libxml2-utils xsltproc unzip \
-            libssl-dev libxml-simple-perl libc++1 libc++-dev python3 python-is-python3 bc jq
+            libssl-dev libxml-simple-perl libc++1 libc++-dev python3 python-is-python3 bc jq \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
           sudo apt-get install -y libncurses5 2>/dev/null || true
           sudo ln -sf /usr/lib/x86_64-linux-gnu/libncurses.so.6 /usr/lib/x86_64-linux-gnu/libncurses.so.5 2>/dev/null || true
           sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5 2>/dev/null || true
@@ -75,29 +76,29 @@ jobs:
           echo "Syncing Microsoft kernel repositories..."
           repo sync -c -j$(nproc --all) --no-clone-bundle --no-tags
 
-      - name: Download AOSP Prebuilt Toolchains (Fast Parallel Archives)
+      - name: Download AOSP Prebuilt Toolchains
         run: |
           cd workspace
-          echo "Setting up prebuilt directories..."
-          mkdir -p prebuilts/clang/host/linux-x86/clang-r416183b
-          mkdir -p prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
-          mkdir -p prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
-          mkdir -p prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.17-4.8
-          mkdir -p prebuilts/build-tools
-          mkdir -p kernel/configs
+          echo "Cloning AOSP prebuilt GCC, host tools, and build-tools (depth=1)..."
+          git clone --depth=1 -b master-kernel-build-2021 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+          git clone --depth=1 -b master-kernel-build-2021 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
+          git clone --depth=1 -b master-kernel-build-2021 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.17-4.8 prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.17-4.8
+          git clone --depth=1 -b master-kernel-build-2021 https://android.googlesource.com/platform/prebuilts/build-tools prebuilts/build-tools
+          git clone --depth=1 -b master-kernel-build-2021 https://android.googlesource.com/kernel/configs kernel/configs
 
-          echo "Downloading toolchains in parallel from Google Source..."
-          curl -sL "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/master-kernel-build-2021/clang-r416183b.tar.gz" | tar -xz -C prebuilts/clang/host/linux-x86/clang-r416183b &
-          curl -sL "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/master-kernel-build-2021.tar.gz" | tar -xz -C prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 &
-          curl -sL "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/master-kernel-build-2021.tar.gz" | tar -xz -C prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 &
-          curl -sL "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.17-4.8/+archive/master-kernel-build-2021.tar.gz" | tar -xz -C prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.17-4.8 &
-          curl -sL "https://android.googlesource.com/platform/prebuilts/build-tools/+archive/master-kernel-build-2021.tar.gz" | tar -xz -C prebuilts/build-tools &
-          curl -sL "https://android.googlesource.com/kernel/configs/+archive/master-kernel-build-2021.tar.gz" | tar -xz -C kernel/configs &
-          wait
+          echo "Cloning AOSP Clang toolchain (sparse-checkout for clang-r416183b)..."
+          git clone --depth=1 --filter=blob:none --sparse -b master-kernel-build-2021 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 prebuilts/clang/host/linux-x86
+          (cd prebuilts/clang/host/linux-x86 && git sparse-checkout set clang-r416183b)
 
-          echo "Toolchains extracted successfully:"
-          ls -la prebuilts/clang/host/linux-x86/clang-r416183b/bin/clang
-          ls -la prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc
+          # Provide fallback aarch64-linux-android-gcc symlink in case any legacy Makefile invokes gcc
+          ln -sf /usr/bin/aarch64-linux-gnu-gcc prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-gcc 2>/dev/null || true
+
+          echo "Verifying toolchains:"
+          test -f prebuilts/clang/host/linux-x86/clang-r416183b/bin/clang && echo "[OK] Clang compiler found" || (echo "[FAIL] Missing Clang" && exit 1)
+          test -f prebuilts/clang/host/linux-x86/clang-r416183b/bin/ld.lld && echo "[OK] LLD linker found" || (echo "[FAIL] Missing LLD" && exit 1)
+          test -f prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-as && echo "[OK] AArch64 binutils found" || (echo "[FAIL] Missing binutils" && exit 1)
+          test -f prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.17-4.8/bin/x86_64-linux-ar && echo "[OK] Host AR found" || (echo "[FAIL] Missing Host AR" && exit 1)
+          test -f prebuilts/build-tools/linux-x86/bin/make && echo "[OK] Build-tools make found" || (echo "[FAIL] Missing make" && exit 1)
 
       - name: Integrate KernelSU
         if: ${{ github.event.inputs.enable_ksu == 'true' }}
@@ -107,29 +108,49 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           echo "KernelSU patch applied successfully."
 
-      - name: Apply Defconfig Tweaks (BBR, WireGuard, Kprobes)
+      - name: Apply Defconfig Tweaks (KernelSU, BBR, WireGuard, Kprobes)
         run: |
-          cd workspace/kernel/msm-5.4/arch/arm64/configs/vendor
+          cd workspace/kernel/msm-5.4
           TARGET_CONFIG="${{ github.event.inputs.defconfig }}"
-          echo "Patching $TARGET_CONFIG..."
+          echo "Configuring kernel defconfig tweaks for $TARGET_CONFIG..."
 
-          # Kprobes for root stealth
-          echo "CONFIG_KPROBES=y" >> $TARGET_CONFIG
-          echo "CONFIG_HAVE_KPROBES=y" >> $TARGET_CONFIG
-          echo "CONFIG_KPROBE_EVENTS=y" >> $TARGET_CONFIG
+          # Create custom fragment to be merged during generate_defconfig.sh
+          CUSTOM_FRAG="arch/arm64/configs/vendor/duo2_custom.config"
+          rm -f $CUSTOM_FRAG
+          touch $CUSTOM_FRAG
 
-          # BBR TCP congestion
+          # Kprobes for root stealth (Mandatory for KernelSU)
+          echo "CONFIG_KPROBES=y" >> $CUSTOM_FRAG
+          echo "CONFIG_HAVE_KPROBES=y" >> $CUSTOM_FRAG
+          echo "CONFIG_KPROBE_EVENTS=y" >> $CUSTOM_FRAG
+
+          # KernelSU native driver
+          if [ "${{ github.event.inputs.enable_ksu }}" = "true" ]; then
+            echo "CONFIG_KSU=y" >> $CUSTOM_FRAG
+            echo "[OK] In-Kernel KernelSU enabled"
+          fi
+
+          # In-Kernel BBR
           if [ "${{ github.event.inputs.enable_bbr }}" = "true" ]; then
-            echo "CONFIG_TCP_CONG_BBR=y" >> $TARGET_CONFIG
-            echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\"" >> $TARGET_CONFIG
+            echo "CONFIG_TCP_CONG_BBR=y" >> $CUSTOM_FRAG
+            echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> $CUSTOM_FRAG
             echo "[OK] In-Kernel BBR enabled"
           fi
 
-          # WireGuard
+          # In-Kernel WireGuard
           if [ "${{ github.event.inputs.enable_wireguard }}" = "true" ]; then
-            echo "CONFIG_WIREGUARD=y" >> $TARGET_CONFIG
+            echo "CONFIG_WIREGUARD=y" >> $CUSTOM_FRAG
             echo "[OK] In-Kernel WireGuard enabled"
           fi
+
+          # Append to base gki_defconfig and vendor lahaina_GKI.config so merge_config.sh preserves them
+          cat $CUSTOM_FRAG >> arch/arm64/configs/gki_defconfig
+          cat $CUSTOM_FRAG >> arch/arm64/configs/vendor/lahaina_GKI.config
+          cat $CUSTOM_FRAG >> arch/arm64/configs/vendor/$TARGET_CONFIG
+
+          # Also hook generate_defconfig.sh to ensure custom configs stay appended after savedefconfig
+          sed -i 's|mv defconfig $CONFIGS_DIR/$REQUIRED_DEFCONFIG|mv defconfig $CONFIGS_DIR/$REQUIRED_DEFCONFIG; cat $CONFIGS_DIR/duo2_custom.config >> $CONFIGS_DIR/$REQUIRED_DEFCONFIG|g' scripts/gki/generate_defconfig.sh
+          echo "Defconfig hooks applied successfully."
 
       - name: Compile Surface Duo 2 Kernel
         run: |
