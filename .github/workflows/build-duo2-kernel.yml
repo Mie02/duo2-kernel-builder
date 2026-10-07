@@ -105,7 +105,18 @@ jobs:
           cd workspace/kernel/msm-5.4
           echo "Applying KernelSU integration to Linux 5.4 kernel tree..."
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
-          echo "KernelSU patch applied successfully."
+
+          echo "Applying Linux 5.4 compatibility backports for KernelSU..."
+          # 1. Provide include/linux/pgtable.h wrapper (introduced in Linux 5.8)
+          if [ ! -f "include/linux/pgtable.h" ]; then
+            echo "Creating include/linux/pgtable.h wrapper..."
+            printf '/* SPDX-License-Identifier: GPL-2.0 */\n#ifndef _LINUX_PGTABLE_H\n#define _LINUX_PGTABLE_H\n#include <asm/pgtable.h>\n#endif /* _LINUX_PGTABLE_H */\n' > include/linux/pgtable.h
+          fi
+
+          # 2. Patch sucompat.c direct include
+          find KernelSU/ drivers/kernelsu/ -name "sucompat.c" -exec sed -i 's|<linux/pgtable.h>|<asm/pgtable.h>|g' {} + 2>/dev/null || true
+
+          echo "KernelSU patch and 5.4 backports applied successfully."
 
       - name: Apply Defconfig Tweaks (KernelSU, BBR, WireGuard, Kprobes)
         run: |
