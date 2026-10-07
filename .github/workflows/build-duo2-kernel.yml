@@ -119,14 +119,18 @@ jobs:
           # 2. Add Linux 5.4 nofault API compatibility macros to include/linux/uaccess.h
           printf '\n/* Linux 5.4 LTS compatibility for 5.8+ nofault API */\n#ifndef copy_to_kernel_nofault\n#define copy_to_kernel_nofault probe_kernel_write\n#endif\n#ifndef copy_from_kernel_nofault\n#define copy_from_kernel_nofault probe_kernel_read\n#endif\n#ifndef strncpy_from_user_nofault\n#define strncpy_from_user_nofault strncpy_from_unsafe_user\n#endif\n#ifndef copy_from_user_nofault\n#define copy_from_user_nofault copy_from_unsafe_user\n#endif\n#ifndef copy_to_user_nofault\n#define copy_to_user_nofault copy_to_unsafe_user\n#endif\n' >> include/linux/uaccess.h
 
-          # 3. Patch direct source references in KernelSU tree
+          # 3. Add Linux 5.4 anonymous inode security compatibility macro
+          printf '\n/* Linux 5.4 LTS compatibility for anonymous inode security initialization */\n#ifndef security_inode_init_security_anon\n#define security_inode_init_security_anon(inode, name, context_inode) (0)\n#endif\n' >> include/linux/security.h
+
+          # 4. Patch direct source references in KernelSU tree
           find KernelSU/ drivers/kernelsu/ -type f \( -name "*.c" -o -name "*.h" \) -exec sed -i \
             -e 's|<linux/pgtable.h>|<asm/pgtable.h>|g' \
             -e 's|copy_to_kernel_nofault|probe_kernel_write|g' \
             -e 's|copy_from_kernel_nofault|probe_kernel_read|g' \
             -e 's|strncpy_from_user_nofault|strncpy_from_unsafe_user|g' \
             -e 's|copy_from_user_nofault|copy_from_unsafe_user|g' \
-            -e 's|copy_to_user_nofault|copy_to_unsafe_user|g' {} + 2>/dev/null || true
+            -e 's|copy_to_user_nofault|copy_to_unsafe_user|g' \
+            -e 's|security_inode_init_security_anon([^)]*)|0|g' {} + 2>/dev/null || true
 
           echo "KernelSU patch and 5.4 backports applied successfully."
 
