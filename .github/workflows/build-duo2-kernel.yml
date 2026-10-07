@@ -132,6 +132,41 @@ jobs:
             -e 's|copy_to_user_nofault|copy_to_unsafe_user|g' \
             -e 's|security_inode_init_security_anon([^)]*)|0|g' {} + 2>/dev/null || true
 
+          # 5. Suppress -Werror for KernelSU's own Makefile to avoid "forbidden warning" aborts.
+          #    The kernel's scripts/Makefile.build promotes certain warnings to errors via KBUILD_CFLAGS.
+          #    We inject -Wno-unused-variable into the KernelSU Makefile's ccflags to silence
+          #    variables that become dead code after our 5.4 backport sed replacements (e.g. qname).
+          KERNELSU_MK=$(find drivers/kernelsu/ KernelSU/ -name "Makefile" | head -n 1)
+          if [ -n "$KERNELSU_MK" ]; then
+            echo "Patching $KERNELSU_MK to suppress unused-variable warnings..."
+            # Check if ccflags-y already exists in the file
+            if grep -q "^ccflags-y" "$KERNELSU_MK"; then
+              sed -i 's|^ccflags-y\s*:=|ccflags-y := -Wno-unused-variable -Wno-error=unused-variable|' "$KERNELSU_MK"
+            else
+              echo 'ccflags-y += -Wno-unused-variable -Wno-error=unused-variable' >> "$KERNELSU_MK"
+            fi
+          fi
+
+          # 6. Direct source patch: cast 'qname' to (void) in file_wrapper.c if it's declared
+          #    but no longer used (happens when security_inode_init_security_anon is stubbed out).
+          FW_FILE=$(find drivers/kernelsu/ KernelSU/ -name "file_wrapper.c" | head -n 1)
+          if [ -n "$FW_FILE" ]; then
+            echo "Patching $FW_FILE to suppress unused qname variable..."
+            # After any line declaring 'qname', add (void)qname; if not already present
+            python3 - <<'PYEOF'
+import re, sys
+fw = open("$FW_FILE", "r").read()
+# Find qname declaration and ensure (void)qname; follows within the same block
+if "qname" in fw and "(void)qname" not in fw:
+    # Insert (void)qname; after the line that declares struct qstr qname or similar
+    fw = re.sub(r'(\bstruct qstr\s+qname\b[^\n]*\n)', r'\1\t(void)qname;\n', fw, count=1)
+    open("$FW_FILE", "w").write(fw)
+    print("qname void-cast inserted in file_wrapper.c")
+else:
+    print("No qname fix needed or already patched")
+PYEOF
+          fi
+
           echo "KernelSU patch and 5.4 backports applied successfully."
 
       - name: Apply Defconfig Tweaks (KernelSU, BBR, WireGuard, Kprobes)
