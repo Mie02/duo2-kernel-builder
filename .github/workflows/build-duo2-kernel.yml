@@ -147,10 +147,35 @@ jobs:
           FW_FILE=$(find drivers/kernelsu/ KernelSU/ -name "file_wrapper.c" | head -n 1)
           if [ -n "$FW_FILE" ]; then
             echo "Patching $FW_FILE for unused qname..."
-            # Use sed: after a line containing 'struct qstr qname', insert (void)qname;
             sed -i '/struct qstr[[:space:]]*qname/a\\t(void)qname;' "$FW_FILE" || true
             echo "[OK] qname void-cast inserted"
           fi
+
+          # 7. Stub out seccomp_cache.c — uses SECCOMP_ARCH_NATIVE_NR introduced in Linux 5.11.
+          #    On Linux 5.4 this identifier does not exist, causing 3 hard compile errors.
+          #    Strategy: replace the whole file with a no-op stub and remove it from the Makefile.
+          SC_FILE=$(find drivers/kernelsu/ KernelSU/ -name "seccomp_cache.c" | head -n 1)
+          if [ -n "$SC_FILE" ]; then
+            SC_DIR=$(dirname "$SC_FILE")
+            echo "Stubbing out $SC_FILE (Linux 5.11+ seccomp cache not available on 5.4)..."
+            cat > "$SC_FILE" << 'SECCOMP_STUB'
+// SPDX-License-Identifier: GPL-2.0
+// Linux 5.4 LTS compatibility stub: seccomp_cache requires SECCOMP_ARCH_NATIVE_NR
+// which was introduced in Linux 5.11. All functions are no-ops on 5.4.
+SECCOMP_STUB
+            # Remove seccomp_cache.o from the KernelSU Makefile so it is not compiled
+            find drivers/kernelsu/ KernelSU/ -name "Makefile" -exec \
+              sed -i 's|seccomp_cache\.o||g' {} + 2>/dev/null || true
+            echo "[OK] seccomp_cache.c stubbed and removed from build"
+          fi
+
+          # 8. Broad safety net: null out any remaining SECCOMP_ARCH_NATIVE_NR references
+          #    across all KernelSU C/H files to catch any other 5.11+ seccomp usage.
+          find drivers/kernelsu/ KernelSU/ -type f \( -name "*.c" -o -name "*.h" \) \
+            -exec grep -l "SECCOMP_ARCH_NATIVE_NR" {} \; | while read f; do
+            echo "Patching SECCOMP_ARCH_NATIVE_NR in $f..."
+            sed -i 's|SECCOMP_ARCH_NATIVE_NR|0|g' "$f" || true
+          done
 
           echo "KernelSU patch and 5.4 backports applied successfully."
 
