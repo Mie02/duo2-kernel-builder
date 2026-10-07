@@ -30,7 +30,7 @@ on:
 jobs:
   build:
     name: Compile Duo 2 Kernel (${{ github.event.inputs.defconfig }})
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout Repository
@@ -48,9 +48,12 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y git-core gnupg flex bison gperf build-essential zip curl \
-            zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev \
+            zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses-dev \
             libx11-dev lib32z-dev libgl1-mesa-dev libxml2-utils xsltproc unzip \
-            libssl-dev libxml-simple-perl libc++1 libc++-dev python3 bc jq libncurses5
+            libssl-dev libxml-simple-perl libc++1 libc++-dev python3 python-is-python3 bc jq
+          sudo apt-get install -y libncurses5 2>/dev/null || true
+          sudo ln -sf /usr/lib/x86_64-linux-gnu/libncurses.so.6 /usr/lib/x86_64-linux-gnu/libncurses.so.5 2>/dev/null || true
+          sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5 2>/dev/null || true
 
       - name: Setup repo tool
         run: |
